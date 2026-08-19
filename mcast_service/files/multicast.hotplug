@@ -1,0 +1,21 @@
+#!/bin/sh
+# Multicast
+#
+. /lib/functions.sh
+
+[ "$ACTION" = "ifup" -a -n "$INTERFACE" ] && {
+	dev=`uci -q get multicast.mcast.upstream`
+	if [ "$dev" = "$DEVICE" ]; then
+		pid=$(pidof mcastd)
+		[ "$pid" ] && kill -SIGHUP $pid
+	elif [ "$dev" = " " ]; then
+		default_route=`head -2 /proc/net/route|tail -1|awk '{ print $1 }'`
+		value=`head -2 /proc/net/route|tail -1|awk '{ print $2 }'`
+		[[ -z "$default_route" || "$value" != "00000000" ]] && return 0
+		[ "$default_route" = "$DEVICE" ] || return 0
+		upstream="mcast_upstream=\"$default_route\""
+		upstream_wan="mcast_upstream_wan=\"$default_route\""
+		sed -ie "s/mcast_upstream=.*/${upstream}/g" /tmp/mcast.conf
+		sed -ie "s/mcast_upstream_wan=.*/${upstream_wan}/g" /tmp/mcast.conf
+	fi
+}

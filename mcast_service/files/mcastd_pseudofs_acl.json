@@ -1,0 +1,5 @@
+{
+    "devfs": {
+        "mcast": { "user": "mcastd", "group": "mcastd", "mask": "600" }
+	}
+}

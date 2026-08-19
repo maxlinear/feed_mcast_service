@@ -1,0 +1,233 @@
+#!/bin/sh /etc/rc.common
+
+START=15
+
+USE_PROCD=1
+PROG=/opt/intel/usr/sbin/mcastd
+CONFIGFILE=/tmp/mcast.conf
+export LD_LIBRARY_PATH=/opt/intel/usr/lib:${LD_LIBRARY_PATH}
+export PATH=$PATH:/opt/intel/usr/sbin:${PATH}
+
+append_param() {
+	local section="$1"
+	local option="$2"
+	local _loctmp
+
+	config_get _loctmp "$section" "$option"
+	[ "$_loctmp" = " " ] && _loctmp=""
+	echo "$option=\"$_loctmp\"" >> $CONFIGFILE
+}
+
+validate_mcast_section()
+{
+	uci_validate_section mcast mcast "${1}" \
+		'mcast_log_level:uinteger' \
+		'mcast_log_type:uinteger' \
+		'mcast_grp_entries:uinteger' \
+		'mcast_upstream:string' \
+		'mcast_upstream_wan:string' \
+		'mcast_baseiface:string'\
+		'mcast_downstream:string' \
+		'mcast_interface_filter:string'\
+		'mcast_interface_filter_status:bool'\
+		'mcast_igmp_fast_leave_status:bool'\
+		'mcast_igmp_last_mem_query_count:uinteger'\
+		'mcast_igmp_last_mem_query_count_status:bool'\
+		'mcast_igmp_last_mem_query_interval:uinteger'\
+		'mcast_igmp_last_mem_query_interval_status:bool'\
+		'mcast_igmp_query_interval:uinteger' \
+		'mcast_igmp_query_interval_status:bool'\
+		'mcast_igmp_query_resp_interval:uinteger'\
+		'mcast_igmp_query_resp_interval_status:bool'\
+		'mcast_igmp_snooping_mode:uinteger'\
+		'mcast_igmp_snooping_status:bool'\
+		'mcast_igmp_proxy_status:bool'\
+		'mcast_mld_fast_leave_status:bool'\
+		'mcast_mld_last_mem_query_count:uinteger'\
+		'mcast_mld_last_mem_query_count_status:bool'\
+		'mcast_mld_last_mem_query_interval:uinteger'\
+		'mcast_mld_last_mem_query_interval_status:bool'\
+		'mcast_mld_query_interval:uinteger'\
+		'mcast_mld_query_interval_status:bool'\
+		'mcast_mld_query_resp_interval:uinteger'\
+		'mcast_mld_query_resp_interval_status:bool'\
+		'mcast_mld_snooping_mode:uinteger'\
+		'mcast_mld_snooping_status:bool'\
+		'mcast_mld_proxy_status:bool'
+}
+
+multicast_add() {
+	local cfg=$1
+	append_param "$cfg" "mcast_log_level"
+	append_param "$cfg" "mcast_log_type"
+	append_param "$cfg" "mcast_grp_entries"
+	append_param "$cfg" "mcast_upstream"
+	append_param "$cfg" "mcast_upstream_wan"
+	append_param "$cfg" "mcast_baseiface"
+	append_param "$cfg" "mcast_downstream"
+	append_param "$cfg" "mcast_interface_filter"
+	append_param "$cfg" "mcast_interface_filter_status"
+	append_param "$cfg" "mcast_igmp_fast_leave_status"
+	append_param "$cfg" "mcast_igmp_last_mem_query_count"
+	append_param "$cfg" "mcast_igmp_last_mem_query_count_status"
+	append_param "$cfg" "mcast_igmp_last_mem_query_interval"
+	append_param "$cfg" "mcast_igmp_last_mem_query_interval_status"
+	append_param "$cfg" "mcast_igmp_query_interval"
+	append_param "$cfg" "mcast_igmp_query_interval_status"
+	append_param "$cfg" "mcast_igmp_query_resp_interval"
+	append_param "$cfg" "mcast_igmp_query_resp_interval_status"
+	append_param "$cfg" "mcast_igmp_snooping_mode"
+	append_param "$cfg" "mcast_igmp_snooping_status"
+	append_param "$cfg" "mcast_igmp_proxy_status"
+	append_param "$cfg" "mcast_mld_fast_leave_status"
+	append_param "$cfg" "mcast_mld_last_mem_query_count"
+	append_param "$cfg" "mcast_mld_last_mem_query_count_status"
+	append_param "$cfg" "mcast_mld_last_mem_query_interval"
+	append_param "$cfg" "mcast_mld_last_mem_query_interval_status"
+	append_param "$cfg" "mcast_mld_query_interval"
+	append_param "$cfg" "mcast_mld_query_interval_status"
+	append_param "$cfg" "mcast_mld_query_resp_interval"
+	append_param "$cfg" "mcast_mld_query_resp_interval_status"
+	append_param "$cfg" "mcast_mld_snooping_mode"
+	append_param "$cfg" "mcast_mld_snooping_status"
+	append_param "$cfg" "mcast_mld_proxy_status"
+}
+
+service_triggers() {
+	procd_add_reload_trigger "mcast"
+	procd_add_validation validate_mcast_section
+}
+
+start_service() {
+	validate_mcast_section "${1}" || {
+		echo "validation failed"
+		return 1
+	}
+	touch $CONFIGFILE
+	chmod 640 $CONFIGFILE
+	echo "# auto-generated config file from /etc/config/mcast" > $CONFIGFILE
+	echo >> $CONFIGFILE
+
+	config_load mcast
+	config_foreach multicast_add mcast
+	config_get igmp_proxy    mcast mcast_igmp_proxy_status
+	config_get igmp_snooping mcast mcast_igmp_snooping_status
+	config_get mld_proxy     mcast mcast_mld_proxy_status
+	config_get mld_snooping  mcast mcast_mld_snooping_status
+
+	[[ "$igmp_proxy" = 1 || "$mld_proxy" = 1 || "$igmp_snooping" = 1 ]] && {
+		procd_open_instance
+		procd_set_param env export  LD_LIBRARY_PATH=/opt/intel/usr/lib:${LD_LIBRARY_PATH}
+		procd_set_param command $PROG -c $CONFIGFILE
+		procd_set_param file $CONFIGFILE
+		procd_set_param respawn
+		[ -f /usr/share/pseudofs_acl/mcastd_pseudofs_acl.json ] && {
+			procd_set_param pseudofs_acl /usr/share/pseudofs_acl/mcastd_pseudofs_acl.json
+		}
+		[ -f /usr/share/capabilities/multicast.json ] && {
+			procd_set_param user mcastd
+			procd_set_param capabilities "/usr/share/capabilities/multicast.json"
+		}
+
+		procd_open_data
+		json_add_array firewall
+
+		json_add_object ""
+			json_add_string command "iptables -I zone_wan_prerouting -t nat -d 224.0.0.0/240.0.0.0 -j ACCEPT"
+		json_close_object
+		json_add_object ""
+			json_add_string command "iptables -I zone_lan_prerouting -t nat -d 224.0.0.0/240.0.0.0 -j ACCEPT"
+		json_close_object
+		json_add_object ""
+			json_add_string type rule
+			json_add_string src "*"
+			json_add_string family ipv4
+			json_add_string proto any
+			json_add_string dest_ip "224.0.0.0/4"
+			json_add_string target ACCEPT
+		json_close_object
+		json_add_object ""
+			json_add_string type rule
+			json_add_string src "*"
+			json_add_string dest "*"
+			json_add_string family ipv4
+			json_add_string proto any
+			json_add_string dest_ip "224.0.0.0/4"
+			json_add_string target ACCEPT
+		json_close_object
+		json_add_object ""
+			json_add_string type rule
+			json_add_string dest "*"
+			json_add_string family ipv4
+			json_add_string proto any
+			json_add_string dest_ip "224.0.0.0/4"
+			json_add_string target ACCEPT
+		json_close_object
+		json_add_object ""
+			json_add_string type rule
+			json_add_string src "*"
+			json_add_string family ipv6
+			json_add_string proto any
+			json_add_string dest_ip "ff00::/8"
+			json_add_string target ACCEPT
+		json_close_object
+		json_add_object ""
+			json_add_string type rule
+			json_add_string src "*"
+			json_add_string dest "*"
+			json_add_string family ipv6
+			json_add_string proto any
+			json_add_string dest_ip "ff00::/8"
+			json_add_string target ACCEPT
+		json_close_object
+		json_add_object ""
+			json_add_string type rule
+			json_add_string dest "*"
+			json_add_string family ipv6
+			json_add_string proto any
+			json_add_string dest_ip "ff00::/8"
+			json_add_string target ACCEPT
+		json_close_object
+		json_close_array
+		procd_close_data
+
+		procd_close_instance
+	}
+}
+
+reload_service() {
+	echo "# auto-generated config file from /etc/config/mcast" > $CONFIGFILE
+	echo >> $CONFIGFILE
+	config_load mcast
+	config_foreach multicast_add mcast
+
+	pid=$(pidof mcastd)
+	[ -z "$pid" ] && {
+		echo "Process does not exist. Hence exiting"
+#		start /* Can be started if required */
+		return 0
+	}
+
+	validate_mcast_section "${1}" || {
+		echo "validation failed"
+		return 1
+	}
+
+	procd_send_signal multicast
+}
+
+stop_service() {
+	pid=$(pidof mcastd)
+	[ -z "$pid" ] && echo "Process does not exist" && return 0
+	service_stop $PROG
+
+	[ -f $CONFIGFILE ]
+		rm -f $CONFIGFILE
+
+	procd_set_config_changed firewall
+}
+
+service_started() {
+	procd_set_config_changed firewall
+}
+
